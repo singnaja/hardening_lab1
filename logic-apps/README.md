@@ -10,10 +10,72 @@ Azure Blob Storage หรือ SharePoint พร้อมเอกสารเ�
 | ไฟล์ | Connector | Trigger | ปลายทาง |
 | --- | --- | --- | --- |
 | `workflows/outlook-attachments-to-blob/workflow.json` | Office 365 Outlook (`office365`) | `When a new email arrives (V3)` | Azure Blob |
-| `workflows/outlookcom-attachments-to-blob/workflow.json` | Outlook.com (`outlook`) | `When a new email arrives (V2)` | Azure Blob |
+| `workflows/outlookcom-attachments-to-blob/workflow.json` | Outlook.com (`outlook`) — **บัญชีส่วนตัวเท่านั้น** | `When a new email arrives (V2)` | Azure Blob |
 | `workflows/outlook-mention-attachments-to-sharepoint/workflow.json` | Office 365 Outlook (`office365`) | `When a new email mentioning me arrives (V2)` | SharePoint |
 | `consumption/outlook-attachments-to-blob.definition.json` | Office 365 Outlook | เหมือนไฟล์แรก แต่เป็นรูปแบบ Consumption | Azure Blob |
 | `connections.json` | — | ตัวอย่าง managed API connections สำหรับ Logic Apps Standard | — |
+
+## เลือก connector ให้ถูกตัวก่อน (เรื่องนี้ต้องทำก่อนอย่างอื่น)
+
+Logic Apps มี Outlook connector **สองตัวที่คนละอันกันโดยสิ้นเชิง** และไอคอนหน้าตาคล้ายกันมาก
+
+| Connector | Connection key | รับบัญชีแบบไหน |
+| --- | --- | --- |
+| **Office 365 Outlook** | `office365` | Work or school account (Microsoft Entra ID) เช่น `someone@company.co.th` |
+| **Outlook.com** | `outlook` | Personal Microsoft account เท่านั้น เช่น `@outlook.com`, `@hotmail.com`, `@live.com` |
+
+ทั้งสองตัวไม่สามารถใช้บัญชีข้ามกันได้ เพราะคุยกับ identity system คนละระบบ
+
+### อาการเมื่อเลือกผิด
+
+ถ้าหน้า Create connection ขึ้นข้อความว่า
+
+> Sign in to create a connection to **Outlook.com**
+
+แปลว่า trigger/action ที่วางไว้เป็นตัวของ connector **Outlook.com** ถ้าเอาบัญชีบริษัทไป sign in
+ที่หน้านี้ จะได้ผลลัพธ์เป็น
+
+> We couldn't find a Microsoft account. Try entering your details again, or create an account.
+
+ข้อความนี้ไม่ได้แปลว่าบัญชีมีปัญหา แต่แปลว่า Microsoft ไปค้นบัญชีในฐานข้อมูลของ MSA
+(Personal account) ซึ่งไม่มีบัญชีขององค์กรอยู่ในนั้นตั้งแต่แรก
+
+### วิธีแก้
+
+สิ่งที่**ไม่ช่วย**ในเคสนี้ คือ เปิด incognito, ล้าง session, กด Change connection แล้ว sign in ใหม่
+หรือตรวจ API connections ใน Azure Portal เพราะปัญหาอยู่ที่ตัว connector ที่เลือกไว้ ไม่ใช่ session
+หรือ credential
+
+ต้องเปลี่ยน connector แทน
+
+1. ลบ trigger ตัวเดิมออกจาก designer
+2. Add a trigger แล้วค้นด้วยคำว่า `Office 365 Outlook` (ไม่ใช่ `Outlook.com`)
+3. เลือก `When a new email arrives (V3)` หรือ `When a new email mentioning me arrives (V2)`
+4. Sign in ด้วยบัญชีบริษัท หน้า sign in ที่ถูกต้องจะพาไปที่ login ของ tenant องค์กร
+
+ถ้าเคยลองสร้าง connection ค้างไว้ ให้ไปลบ connection เสียของเก่าทิ้งที่
+Azure Portal → Logic App → API connections ด้วย ไม่งั้นจะมี connection ที่ status เป็น Error ค้างอยู่
+
+วิธีเช็กในไฟล์ `workflow.json` ว่าตอนนี้อยู่ connector ตัวไหน ให้ดูที่ `referenceName` หรือ `path`
+
+```json
+"connection": { "referenceName": "outlook" }      // Outlook.com  — บัญชีส่วนตัว
+"connection": { "referenceName": "office365" }    // Office 365 Outlook — บัญชีบริษัท
+```
+
+สำหรับบัญชีอย่าง `@banpu.co.th` ให้ใช้ไฟล์ `workflows/outlook-attachments-to-blob/` หรือ
+`workflows/outlook-mention-attachments-to-sharepoint/` ส่วน `workflows/outlookcom-attachments-to-blob/`
+มีไว้เทียบเฉยๆ ใช้กับบัญชีองค์กรไม่ได้
+
+### ถ้าเลือก Office 365 Outlook แล้วยัง sign in ไม่ผ่าน
+
+กรณีนั้นค่อยไปไล่ตามที่คุณว่าไว้ คือเช็ก tenant และ session
+
+- เข้า [myaccount.microsoft.com](https://myaccount.microsoft.com) ด้วยบัญชีเดียวกันเพื่อยืนยันว่าบัญชีใช้งานได้
+- ถ้ามีหลาย tenant ให้ดูว่า Logic App อยู่ tenant เดียวกับบัญชีอีเมลหรือเปล่า ถ้าคนละ tenant
+  ต้องมี guest access หรือย้าย Logic App
+- บาง tenant ปิด third-party app consent ไว้ ต้องให้ Entra ID admin อนุมัติ connector ก่อน
+- ค่อยลอง incognito เป็นขั้นสุดท้าย เผื่อมี session ซ้อนกัน
 
 ## Standard vs Consumption — จุดที่โค้ดต่างกัน
 
