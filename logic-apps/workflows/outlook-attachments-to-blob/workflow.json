@@ -1,0 +1,120 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "blobFolderPath": {
+        "type": "String",
+        "defaultValue": "/inbox-attachments"
+      },
+      "mailFolderPath": {
+        "type": "String",
+        "defaultValue": "Inbox"
+      }
+    },
+    "triggers": {
+      "When_a_new_email_arrives_V3": {
+        "type": "ApiConnection",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 3
+        },
+        "splitOn": "@triggerBody()?['value']",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "office365"
+            }
+          },
+          "method": "get",
+          "path": "/v3/Mail/OnNewEmail",
+          "queries": {
+            "folderPath": "@parameters('mailFolderPath')",
+            "importance": "Any",
+            "fetchOnlyUnread": false,
+            "fetchOnlyWithAttachment": true,
+            "includeAttachments": true
+          }
+        }
+      }
+    },
+    "actions": {
+      "Has_attachments": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "equals": [
+                "@triggerBody()?['hasAttachments']",
+                true
+              ]
+            },
+            {
+              "greater": [
+                "@length(coalesce(triggerBody()?['attachments'], json('[]')))",
+                0
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "For_each_attachment": {
+            "type": "Foreach",
+            "foreach": "@triggerBody()?['attachments']",
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 1
+              }
+            },
+            "actions": {
+              "Skip_inline_images": {
+                "type": "If",
+                "expression": {
+                  "not": {
+                    "equals": [
+                      "@coalesce(items('For_each_attachment')?['isInline'], false)",
+                      true
+                    ]
+                  }
+                },
+                "actions": {
+                  "Create_blob_V2": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connection": {
+                          "referenceName": "azureblob"
+                        }
+                      },
+                      "method": "post",
+                      "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files",
+                      "queries": {
+                        "folderPath": "@parameters('blobFolderPath')",
+                        "name": "@{utcNow('yyyyMMddHHmmssfff')}-@{items('For_each_attachment')?['name']}",
+                        "queryParametersSingleEncoded": true
+                      },
+                      "body": "@base64ToBinary(items('For_each_attachment')?['contentBytes'])"
+                    },
+                    "runtimeConfiguration": {
+                      "contentTransfer": {
+                        "transferMode": "Chunked"
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {}
+                }
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {}
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "type": "Object",
+      "defaultValue": {}
+    }
+  },
+  "triggers": {
+    "When_a_new_email_arrives_V3": {
+      "type": "ApiConnection",
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 3
+      },
+      "splitOn": "@triggerBody()?['value']",
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "@parameters('$connections')['office365']['connectionId']"
+          }
+        },
+        "method": "get",
+        "path": "/v3/Mail/OnNewEmail",
+        "queries": {
+          "folderPath": "Inbox",
+          "importance": "Any",
+          "fetchOnlyWithAttachment": true,
+          "includeAttachments": true
+        }
+      }
+    }
+  },
+  "actions": {
+    "For_each_attachment": {
+      "type": "Foreach",
+      "foreach": "@coalesce(triggerBody()?['attachments'], json('[]'))",
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 1
+        }
+      },
+      "actions": {
+        "Create_blob_V2": {
+          "type": "ApiConnection",
+          "inputs": {
+            "host": {
+              "connection": {
+                "name": "@parameters('$connections')['azureblob']['connectionId']"
+              }
+            },
+            "method": "post",
+            "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files",
+            "queries": {
+              "folderPath": "/inbox-attachments",
+              "name": "@{utcNow('yyyyMMddHHmmssfff')}-@{items('For_each_attachment')?['name']}",
+              "queryParametersSingleEncoded": true
+            },
+            "body": "@base64ToBinary(items('For_each_attachment')?['contentBytes'])"
+          },
+          "runtimeConfiguration": {
+            "contentTransfer": {
+              "transferMode": "Chunked"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {}
+}
