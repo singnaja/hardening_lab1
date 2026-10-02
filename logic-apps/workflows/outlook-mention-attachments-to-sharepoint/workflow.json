@@ -1,0 +1,110 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "sharePointSiteUrl": {
+        "type": "String",
+        "defaultValue": "https://contoso.sharepoint.com/sites/Finance"
+      },
+      "sharePointFolderPath": {
+        "type": "String",
+        "defaultValue": "/Shared Documents/Mentioned Me Attachments"
+      }
+    },
+    "triggers": {
+      "When_a_new_email_mentioning_me_arrives_V2": {
+        "type": "ApiConnection",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 3
+        },
+        "splitOn": "@triggerBody()?['value']",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "office365"
+            }
+          },
+          "method": "get",
+          "path": "/v2/Mail/OnNewMentionMeEmail",
+          "queries": {
+            "folderPath": "Inbox",
+            "importance": "Any",
+            "fetchOnlyWithAttachment": true,
+            "includeAttachments": true
+          }
+        }
+      }
+    },
+    "actions": {
+      "Has_attachments": {
+        "type": "If",
+        "expression": {
+          "equals": [
+            "@triggerBody()?['hasAttachments']",
+            true
+          ]
+        },
+        "actions": {
+          "For_each_attachment": {
+            "type": "Foreach",
+            "foreach": "@coalesce(triggerBody()?['attachments'], json('[]'))",
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 1
+              }
+            },
+            "actions": {
+              "Get_attachment_V2": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "office365"
+                    }
+                  },
+                  "method": "get",
+                  "path": "/v2/Mail/@{encodeURIComponent(triggerBody()?['id'])}/Attachments/@{encodeURIComponent(items('For_each_attachment')?['id'])}"
+                }
+              },
+              "Create_file_in_SharePoint": {
+                "type": "ApiConnection",
+                "runAfter": {
+                  "Get_attachment_V2": [
+                    "Succeeded"
+                  ]
+                },
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "sharepointonline"
+                    }
+                  },
+                  "method": "post",
+                  "path": "/datasets/@{encodeURIComponent(encodeURIComponent(parameters('sharePointSiteUrl')))}/files",
+                  "queries": {
+                    "folderPath": "@parameters('sharePointFolderPath')",
+                    "name": "@{body('Get_attachment_V2')?['name']}",
+                    "queryParametersSingleEncoded": true
+                  },
+                  "body": "@base64ToBinary(body('Get_attachment_V2')?['contentBytes'])"
+                },
+                "runtimeConfiguration": {
+                  "contentTransfer": {
+                    "transferMode": "Chunked"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {}
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}
